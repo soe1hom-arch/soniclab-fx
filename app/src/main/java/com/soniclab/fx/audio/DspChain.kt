@@ -9,7 +9,8 @@ import kotlin.math.pow
  * Real-time DSP chain for system-wide audio processing.
  * Runs on the audio thread inside GlobalAudioEffect.process().
  *
- * Chain order: preamp → EQ (10 bands) → bass/treble → reverb → limiter
+ * Chain order: auto-normalize → preamp → balance → EQ (10 bands) →
+ *              bass/treble → AI enhance → spatial → reverb → limiter
  */
 class DspChain {
 
@@ -17,14 +18,14 @@ class DspChain {
     private var channelCount = 2
     private var enabled = false
 
-    // EQ: 10 peaking biquads per channel
+    // Processors
+    private val autoNormalizer = AutoNormalizer()
+    private val balanceProcessor = BalanceProcessor()
     private val eqFilters = Array(10) { Array(2) { BiquadFilter() } }
-
-    // Tone: low shelf (bass) + high shelf (treble) per channel
     private val bassFilters = Array(2) { BiquadFilter() }
     private val trebleFilters = Array(2) { BiquadFilter() }
-
-    // Reverb (simple Schroeder)
+    private val enhancer = ClassicEnhancer()
+    private val spatial = SpatialProcessor()
     private val reverbL = ReverbChannel()
     private val reverbR = ReverbChannel()
 
@@ -34,7 +35,6 @@ class DspChain {
     private var lookaheadPos = 0
     private var lookaheadFilled = false
 
-    // Settings (volatile — written from UI thread)
     @Volatile var settings = FxSettings()
 
     fun configure(sampleRate: Int, channelCount: Int) {
@@ -43,45 +43,80 @@ class DspChain {
         rebuildFilters()
         reverbL.init(sampleRate)
         reverbR.init(sampleRate)
+        spatial.configure(sampleRate)
     }
 
     fun setEnabled(enabled: Boolean) { this.enabled = enabled }
 
-    /**
-     * Process interleaved float samples in-place.
-     * Input/output shape: frames * channelCount values.
-     */
     fun process(samples: FloatArray): FloatArray {
         if (!enabled) return samples
         val s = settings
-        val ch = channelCount.coerceAtLeast(1)
+        val ch = channelCount.coerceAtMost(2)
+        val frames = samples.size / ch
 
+        // 1. Auto-normalization gain
+        if (s.autoNormalize) {
+            val gain = autoNormalizer.processGain(samples)
+            if (gain != 1f) for (i in samples.indices) samples[i] *= gain
+        }
+
+        // 2. Preamp
+        if (s.preampGainDb != 0f) {
+            val g = preampGainLin
+            for (i in samples.indices) samples[i] *= g
+        }
+
+        // 3. Balance
+        balanceProcessor.balance = s.balance
+        balanceProcessor.process(samples, ch)
+
+        // 4. EQ bands
         for (i in samples.indices) {
+            val c = (i % ch).coerceAtMost(1)
             var v = samples[i]
-            val c = i % ch
-
-            // Preamp
-            if (s.preampGainDb != 0f) v *= preampGainLin
-
-            // EQ bands
             for (b in 0 until FxSettings.BAND_COUNT) {
-                if (s.eqBandGains[b] != 0f) v = eqFilters[b][c.coerceAtMost(1)].process(v)
+                if (s.eqBandGains[b] != 0f) v = eqFilters[b][c].process(v)
             }
-
-            // Bass / Treble
-            if (s.bassGainDb != 0f) v = bassFilters[c.coerceAtMost(1)].process(v)
-            if (s.trebleGainDb != 0f) v = trebleFilters[c.coerceAtMost(1)].process(v)
-
-            // Reverb
-            if (s.reverbMix > 0f) {
-                v = if (c == 0) reverbL.process(v, s.reverbMix, s.reverbRoomSize)
-                else reverbR.process(v, s.reverbMix, s.reverbRoomSize)
-            }
-
             samples[i] = v
         }
 
-        // Limiter (post)
+        // 5. Bass / Treble
+        for (i in samples.indices) {
+            val c = (i % ch).coerceAtMost(1)
+            if (s.bassGainDb != 0f) samples[i] = bassFilters[c].process(samples[i])
+            if (s.trebleGainDb != 0f) samples[i] = trebleFilters[c].process(samples[i])
+        }
+
+        // 6. AI Enhance
+        enhancer.enabled = s.enhanceEnabled
+        if (s.enhanceEnabled) {
+            enhancer.enhance(samples)
+        }
+
+        // 7. Spatial (3D/8D/Surround)
+        spatial.spatial3d = s.spatial3d
+        spatial.spatial8d = s.spatial8d
+        spatial.surround = s.surround
+        spatial.widthStrength = s.spatialWidth
+        spatial.rotationSeconds = s.spatialRotation
+        spatial.panDepth = s.spatialPanDepth
+        if (s.spatial3d || s.spatial8d || s.surround) {
+            spatial.process(samples, frames, ch)
+        }
+
+        // 8. Reverb
+        if (s.reverbMix > 0f) {
+            for (i in 0 until samples.size step ch) {
+                if (ch >= 2) {
+                    samples[i] = reverbL.process(samples[i], s.reverbMix, s.reverbRoomSize)
+                    samples[i + 1] = reverbR.process(samples[i + 1], s.reverbMix, s.reverbRoomSize)
+                } else {
+                    samples[i] = reverbL.process(samples[i], s.reverbMix, s.reverbRoomSize)
+                }
+            }
+        }
+
+        // 9. Limiter (final safety)
         applyLimiter(samples)
         return samples
     }
@@ -127,9 +162,11 @@ class DspChain {
         settings = newSettings
         rebuildFilters()
         enabled = newSettings.enabled
+        autoNormalizer.enabled = newSettings.autoNormalize
         if (newSettings.enabled) {
             reverbL.init(sampleRate)
             reverbR.init(sampleRate)
+            spatial.configure(sampleRate)
         }
     }
 
@@ -141,6 +178,8 @@ class DspChain {
         for (f in bassFilters) f.reset()
         for (f in trebleFilters) f.reset()
         reverbL.reset(); reverbR.reset()
+        enhancer.reset()
+        autoNormalizer.reset()
     }
 
     private class ReverbChannel {
