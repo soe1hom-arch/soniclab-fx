@@ -111,7 +111,24 @@ class FxViewModel(application: Application) : AndroidViewModel(application) {
     private fun updateServiceSettings(s: FxSettings) {
         val intent = Intent(context, FxOverlayService::class.java).apply {
             action = FxOverlayService.ACTION_UPDATE_SETTINGS
-            putExtra(FxOverlayService.EXTRA_SETTINGS, s)
+            // Pass settings as individual extras since FxSettings isn't Parcelable
+            putExtra("enabled", s.enabled)
+            putExtra("eqGains", s.eqBandGains)
+            putExtra("bass", s.bassGainDb)
+            putExtra("treble", s.trebleGainDb)
+            putExtra("balance", s.balance)
+            putExtra("reverbMix", s.reverbMix)
+            putExtra("reverbRoom", s.reverbRoomSize)
+            putExtra("preamp", s.preampGainDb)
+            putExtra("enhance", s.enhanceEnabled)
+            putExtra("autoNorm", s.autoNormalize)
+            putExtra("spatialMode", s.spatialMode)
+            putExtra("spatial3d", s.spatial3d)
+            putExtra("spatial8d", s.spatial8d)
+            putExtra("surround", s.surround)
+            putExtra("spatialWidth", s.spatialWidth)
+            putExtra("spatialRotation", s.spatialRotation)
+            putExtra("spatialPanDepth", s.spatialPanDepth)
         }
         ContextCompat.startForegroundService(context, intent)
     }
