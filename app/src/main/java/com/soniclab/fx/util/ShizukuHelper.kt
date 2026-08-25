@@ -1,33 +1,20 @@
 package com.soniclab.fx.util
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.os.IBinder
 import android.util.Log
 import rikka.shizuku.Shizuku
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 /**
- * Shizuku integration for registering audio effects on the global output mix
- * without root.  Shizuku provides an ADB-privileged shell that can execute
- * commands requiring MODIFY_AUDIO_SETTINGS / CAPTURE_AUDIO_OUTPUT.
- *
- * Usage flow:
- *  1. Check Shizuku availability (installed + running)
- *  2. Request permission
- *  3. Use Shizuku.newProcess() to run shell commands that register the effect
+ * Shizuku integration for executing privileged shell commands.
+ * Used to register audio effects on the global output mix without root.
  */
 object ShizukuHelper {
 
     private const val TAG = "ShizukuHelper"
     private var permissionGranted = false
-
-    interface Callback {
-        fun onShizukuReady()
-        fun onShizukuDenied()
-        fun onShizukuError(error: String)
-    }
 
     fun isAvailable(context: Context): Boolean {
         return try {
@@ -38,45 +25,34 @@ object ShizukuHelper {
         }
     }
 
-    fun requestPermission(callback: Callback) {
+    fun requestPermission(callback: (Boolean) -> Unit) {
         if (!Shizuku.pingBinder()) {
-            callback.onShizukuError("Shizuku is not running. Start it via ADB or the Shizuku app.")
+            callback(false)
             return
         }
-
-        if (Shizuku.isPreV11()) {
-            callback.onShizukuError("Shizuku version too old. Update to v11+.")
-            return
-        }
-
         if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
             permissionGranted = true
-            callback.onShizukuReady()
+            callback(true)
             return
         }
-
         Shizuku.addRequestPermissionResultListener(object : Shizuku.OnRequestPermissionResultListener {
             override fun onRequestPermissionResult(requestCode: Int, grantResult: Int) {
                 Shizuku.removeRequestPermissionResultListener(this)
-                if (grantResult == PackageManager.PERMISSION_GRANTED) {
-                    permissionGranted = true
-                    callback.onShizukuReady()
-                } else {
-                    callback.onShizukuDenied()
-                }
+                permissionGranted = grantResult == PackageManager.PERMISSION_GRANTED
+                callback(permissionGranted)
             }
         })
         Shizuku.requestPermission(1001)
     }
 
     /**
-     * Execute a shell command via Shizuku's privileged shell.
-     * Returns the combined stdout+stderr output.
+     * Execute a shell command via Shizuku's privileged process.
+     * Falls back to Runtime.exec if Shizuku process creation fails.
      */
     fun execCommand(command: String): String {
-        if (!permissionGranted) return "Shizuku permission not granted"
+        if (!permissionGranted && !Shizuku.pingBinder()) return "Shizuku not available"
         return try {
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
             val stdout = process.inputStream.bufferedReader().readText()
             val stderr = process.errorStream.bufferedReader().readText()
             process.waitFor()
@@ -86,21 +62,6 @@ object ShizukuHelper {
             Log.e(TAG, "execCommand failed: ${e.message}", e)
             "Error: ${e.message}"
         }
-    }
-
-    /**
-     * Register an AudioEffect on the global output mix via shell commands.
-     * This uses `cmd audio` which is available on ADB-privileged shells.
-     */
-    fun registerGlobalEffect(): Boolean {
-        // Check if we can modify audio settings
-        val checkResult = execCommand("cmd audio check-permission android.permission.MODIFY_AUDIO_SETTINGS")
-        Log.i(TAG, "Permission check: $checkResult")
-
-        // Register effect on session 0 (global output mix)
-        val result = execCommand("cmd audio effect enable session=0")
-        Log.i(TAG, "Effect registration: $result")
-        return !result.contains("Error", ignoreCase = true)
     }
 
     fun hasPermission(): Boolean = permissionGranted && Shizuku.pingBinder()

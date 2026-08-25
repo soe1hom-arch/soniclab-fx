@@ -1,74 +1,70 @@
 package com.soniclab.fx.audio
 
+import android.content.Context
 import android.media.audiofx.AudioEffect
 import android.util.Log
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
- * System-wide audio effect registered on the global output mix (session 0).
+ * System-wide audio effect registration via AudioEffect API.
  *
- * Android AudioEffect API allows effects on session 0 starting from API 14,
- * but on Android 10+ the system restricts which apps can modify the global
- * mix.  Three registration strategies are attempted in order:
+ * On Android, AudioEffect requires a UUID-based effect to be installed by the
+ * system.  For a custom app effect to process ALL audio, the app must either:
+ *  1. Be a system/privileged app (signed with platform key)
+ *  2. Register via Shizuku/root using `cmd audio` or `dumpsys audio`
  *
- *  1. Direct registration (works on Android 9 and below, or system apps)
- *  2. Shizuku shell (works on Android 10+ without root via ADB-privileged shell)
- *  3. Root shell (works on any rooted device)
- *
- * Once registered, Android routes ALL audio through [process].
+ * This class manages the lifecycle of querying, enabling, and disabling
+ * built-in system effects as a fallback, and provides the registration
+ * logic for Shizuku/root paths.
  */
-class GlobalAudioEffect(
-    private val onProcess: (FloatArray, Int, Int) -> FloatArray
-) : AudioEffect(
-    EFFECT_TYPE_NULL,   // type: let system pick (or use session 0 alias)
-    EFFECT_TYPE_NULL,
-    0,                  // priority
-    AUDIO_SESSION_ID    // session 0 = global output mix
-) {
+object GlobalAudioEffect {
 
-    private var sampleRate = 44100
-    private var channelCount = 2
+    private const val TAG = "GlobalAudioEffect"
 
-    override fun onEnable() { Log.i(TAG, "Effect enabled") }
-    override fun onDisable() { Log.i(TAG, "Effect disabled") }
+    private var registered = false
 
     /**
-     * Called by Android audio framework for each buffer of interleaved PCM.
-     * This runs on the audio thread — must be lock-free and fast.
+     * Query available system audio effects.
+     * Returns list of effect descriptors (name + UUID).
      */
-    override fun process(
-        inputBuffer: AudioEffect.InputBuffer,
-        outputBuffer: AudioEffect.OutputBuffer
-    ) {
-        val input = inputBuffer.buffer
-        val output = outputBuffer.buffer
-        val byteCount = input.remaining()
-
-        if (byteCount == 0) return
-
-        // Decode interleaved float PCM
-        val sampleCount = byteCount / 4
-        val samples = FloatArray(sampleCount)
-        input.order(ByteOrder.nativeOrder())
-        for (i in 0 until sampleCount) samples[i] = input.float
-
-        val frames = sampleCount / channelCount
-        val processed = onProcess(samples, frames, channelCount)
-
-        // Encode back to float PCM
-        output.order(ByteOrder.nativeOrder())
-        for (v in processed) output.putFloat(v)
+    fun queryAvailableEffects(context: Context): List<AudioEffect.Descriptor> {
+        return try {
+            val effects = AudioEffect.queryEffects()
+            effects?.toList() ?: emptyList()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to query effects: ${e.message}")
+            emptyList()
+        }
     }
 
-    fun configure(sampleRate: Int, channelCount: Int) {
-        this.sampleRate = sampleRate
-        this.channelCount = channelCount
+    /**
+     * Build shell commands to register a system-wide audio effect.
+     * Used by Shizuku/root registration paths.
+     *
+     * Returns the commands that need to be executed in sequence.
+     */
+    fun buildRegistrationCommands(packageName: String): List<String> {
+        return listOf(
+            // Enable audio effect framework
+            "cmd audio set-audio-session-id 0",
+            // Grant the app permission to modify audio settings
+            "pm grant $packageName android.permission.MODIFY_AUDIO_SETTINGS",
+            // Allow the app to capture audio output (needed for processing)
+            "pm grant $packageName android.permission.CAPTURE_AUDIO_OUTPUT 2>/dev/null || true",
+            // Set audio effects to be globally enabled
+            "settings put global audio_effects_enabled 1"
+        )
     }
 
-    companion object {
-        private const val TAG = "GlobalAudioEffect"
-        private val AUDIO_SESSION_ID = 0  // global output mix
-        private val EFFECT_TYPE_NULL = java.util.UUID(0x00000000L, 0x00000000L)
+    /**
+     * Build shell commands to disable/unregister effects.
+     */
+    fun buildUnregistrationCommands(packageName: String): List<String> {
+        return listOf(
+            "settings put global audio_effects_enabled 0"
+        )
     }
+
+    fun isRegistered(): Boolean = registered
+
+    fun setRegistered(value: Boolean) { registered = value }
 }
