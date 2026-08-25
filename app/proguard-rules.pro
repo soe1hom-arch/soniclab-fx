@@ -1,0 +1,2 @@
+-keep class com.soniclab.fx.audio.** { *; }
+-keep class rikka.shizuku.** { *; }
