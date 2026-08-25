@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Audio wave bars -->
+    <path android:fillColor="#1DB954"
+        android:pathData="M40,38 L40,70" android:strokeWidth="4" android:strokeColor="#1DB954" android:strokeLineCap="round"/>
+    <path android:fillColor="#1DB954"
+        android:pathData="M48,30 L48,78" android:strokeWidth="4" android:strokeColor="#1DB954" android:strokeLineCap="round"/>
+    <path android:fillColor="#1DB954"
+        android:pathData="M56,42 L56,66" android:strokeWidth="4" android:strokeColor="#1DB954" android:strokeLineCap="round"/>
+    <path android:fillColor="#1DB954"
+        android:pathData="M64,34 L64,74" android:strokeWidth="4" android:strokeColor="#1DB954" android:strokeLineCap="round"/>
+    <path android:fillColor="#1DB954"
+        android:pathData="M72,40 L72,68" android:strokeWidth="4" android:strokeColor="#1DB954" android:strokeLineCap="round"/>
+</vector>
