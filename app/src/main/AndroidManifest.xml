@@ -3,6 +3,15 @@
 
     <!-- No INTERNET needed — fully offline -->
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Shizuku package visibility (Android 11+) -->
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
