@@ -119,10 +119,10 @@ class SystemEffectManager {
                 val bands = eq.numberOfBands
                 for (b in 0 until minOf(settings.eqBandGains.size, bands)) {
                     val levelMb = (settings.eqBandGains[b] * 100).toInt().toShort()
-                    val setBandLevel = eq.javaClass.getMethod(
+                    val method = eq.javaClass.getMethod(
                         "setBandLevel", Short::class.java, Short::class.java
                     )
-                    setBandLevel.invoke(eq, b.toShort(), levelMb)
+                    method.invoke(eq, b.toShort(), levelMb)
                 }
                 eq.enabled = true
             } catch (e: Exception) {
