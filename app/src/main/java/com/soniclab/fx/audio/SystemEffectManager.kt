@@ -4,24 +4,22 @@ package com.soniclab.fx.audio
 
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
-import android.media.audiofx.Equalizer
 import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
 import android.util.Log
 
 /**
- * Manages Android system audio effects (Equalizer, BassBoost, Virtualizer,
- * PresetReverb) on detected audio sessions.
+ * Manages Android system audio effects on detected audio sessions.
  *
- * Maps SonicLab FX UI controls to system effect parameters.
- * These are the same effects used by Wavelet and Poweramp Equalizer.
+ * Uses AudioEffect.setParameter() directly instead of typed wrappers
+ * to avoid compileSdk compatibility issues.
  */
 class SystemEffectManager {
 
     private val sessionEffects = mutableMapOf<Int, SessionEffects>()
 
     data class SessionEffects(
-        val equalizer: Equalizer?,
+        val equalizer: AudioEffect?,
         val bassBoost: BassBoost?,
         val virtualizer: Virtualizer?,
         val reverb: PresetReverb?
@@ -34,21 +32,21 @@ class SystemEffectManager {
         }
     }
 
-    /**
-     * Attach system effects to a given audio session.
-     */
     fun attachToSession(sessionId: Int): Boolean {
         if (sessionEffects.containsKey(sessionId)) return true
 
         return try {
-            val eq = Equalizer(0, sessionId)
+            // Use AudioEffect with built-in EQUALIZER UUID
+            val eqType = java.UUID.fromString("0bed4300-ddd6-11db-8f34-0002a5d5c51b")
+            val eq = AudioEffect(eqType, java.UUID(0, 0), 0, sessionId)
+
             val bb = BassBoost(0, sessionId)
             val vz = Virtualizer(0, sessionId)
             val rv = PresetReverb(0, sessionId)
 
             eq.enabled = true
             bb.enabled = true
-            vz.enabled = false  // Start disabled, user enables via UI
+            vz.enabled = false
             rv.enabled = false
 
             sessionEffects[sessionId] = SessionEffects(eq, bb, vz, rv)
@@ -60,77 +58,80 @@ class SystemEffectManager {
         }
     }
 
-    /**
-     * Detach effects from a session.
-     */
     fun detachFromSession(sessionId: Int) {
         sessionEffects.remove(sessionId)?.release()
         Log.i(TAG, "Effects detached from session $sessionId")
     }
 
-    /**
-     * Apply FX settings to all active sessions.
-     */
     fun applySettings(settings: FxSettings) {
-        for ((sessionId, effects) in sessionEffects) {
+        for ((_, effects) in sessionEffects) {
             try {
                 applyToSession(settings, effects)
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to apply settings to session $sessionId: ${e.message}")
+                Log.w(TAG, "Failed to apply settings: ${e.message}")
             }
         }
     }
 
     private fun applyToSession(settings: FxSettings, effects: SessionEffects) {
-        // Equalizer: map our 10 bands to system EQ bands
-        effects.equalizer?.let { eq ->
-            val bands = eq.numberOfBands
-            val minLevel = eq.bandLevelRange[0].toInt()
-            val maxLevel = eq.bandLevelRange[1].toInt()
-
-            for (b in 0 until minOf(settings.eqBandGains.size, bands)) {
-                // Map our ±15dB to system range
-                val level = (settings.eqBandGains[b] / 15f * maxLevel).toInt()
-                    .coerceIn(minLevel, maxLevel)
-                eq.setBandLevel(b.toShort(), level.toShort())
+        // BassBoost: 0-1000 strength
+        effects.bassBoost?.let { bb ->
+            val strength = (settings.bassGainDb.coerceIn(0f, 12f) / 12f * 1000f).toInt()
+            try {
+                bb.setStrength(strength.toShort())
+                bb.enabled = settings.bassGainDb > 0f
+            } catch (e: Exception) {
+                Log.w(TAG, "BassBoost setStrength failed: ${e.message}")
             }
         }
 
-        // BassBoost: map our bass gain (0-12dB mapped to 0-1000)
-        effects.bassBoost?.let { bb ->
-            val strength = (settings.bassGainDb.coerceIn(0f, 12f) / 12f * 1000f).toInt()
-            bb.setStrength(strength.toShort())
-            bb.enabled = settings.bassGainDb > 0f
-        }
-
-        // Virtualizer: map our spatial/enhance to virtualizer strength
+        // Virtualizer: 0-1000 strength
         effects.virtualizer?.let { vz ->
             val strength = if (settings.spatial3d || settings.enhanceEnabled) {
                 (settings.spatialWidth * 1000).toInt().coerceIn(0, 1000)
             } else 0
-            vz.setStrength(strength.toShort())
-            vz.enabled = strength > 0
+            try {
+                vz.setStrength(strength.toShort())
+                vz.enabled = strength > 0
+            } catch (e: Exception) {
+                Log.w(TAG, "Virtualizer setStrength failed: ${e.message}")
+            }
         }
 
-        // PresetReverb: map our reverb mix to room presets
+        // PresetReverb
         effects.reverb?.let { rv ->
-            if (settings.reverbMix > 0f) {
-                val preset = when {
-                    settings.reverbRoomSize < 0.3f -> PresetReverb.PRESET_SMALLROOM
-                    settings.reverbRoomSize < 0.6f -> PresetReverb.PRESET_MEDIUMROOM
-                    else -> PresetReverb.PRESET_LARGEROOM
+            try {
+                if (settings.reverbMix > 0f) {
+                    val preset = when {
+                        settings.reverbRoomSize < 0.3f -> PresetReverb.PRESET_SMALLROOM
+                        settings.reverbRoomSize < 0.6f -> PresetReverb.PRESET_MEDIUMROOM
+                        else -> PresetReverb.PRESET_LARGEROOM
+                    }
+                    rv.preset = preset
+                    rv.enabled = true
+                } else {
+                    rv.enabled = false
                 }
-                rv.preset = preset.toShort()
-                rv.enabled = true
-            } else {
-                rv.enabled = false
+            } catch (e: Exception) {
+                Log.w(TAG, "Reverb failed: ${e.message}")
+            }
+        }
+
+        // Equalizer via parameter IDs (bypass type-specific API)
+        effects.equalizer?.let { eq ->
+            try {
+                // PARAM_EQ_BAND_LEVEL = 1, band indices 0-9, level in millibels
+                for (b in 0 until minOf(settings.eqBandGains.size, 10)) {
+                    val levelMb = (settings.eqBandGains[b] * 100).toInt().toShort()
+                    eq.setParameter(1, b.toShort(), levelMb)
+                }
+                eq.enabled = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Equalizer setParameter failed: ${e.message}")
             }
         }
     }
 
-    /**
-     * Release all effects on all sessions.
-     */
     fun releaseAll() {
         for ((_, effects) in sessionEffects) {
             effects.release()
