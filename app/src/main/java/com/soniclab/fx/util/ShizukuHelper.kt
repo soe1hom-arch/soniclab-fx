@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package com.soniclab.fx.util
 
 import android.content.Context

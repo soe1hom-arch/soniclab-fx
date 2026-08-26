@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package com.soniclab.fx.service
 
 import android.app.Notification

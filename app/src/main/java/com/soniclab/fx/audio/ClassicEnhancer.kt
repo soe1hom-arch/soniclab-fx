@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 package com.soniclab.fx.audio
 
 import kotlin.math.abs
