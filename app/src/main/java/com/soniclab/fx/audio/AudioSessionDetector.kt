@@ -20,9 +20,10 @@ class AudioSessionDetector(private val audioManager: AudioManager) {
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
             val activeSessions = configs
-                .filter { it.isPlaying }
-                .map { it.audioAttributes.contentType to getSessionId(it) }
-                .filter { it.second > 0 }
+                .mapNotNull { config ->
+                    val sessionId = getSessionId(config)
+                    if (sessionId > 0) config.audioAttributes.contentType to sessionId else null
+                }
 
             // Find newly started sessions
             val currentIds = activeSessions.map { it.second }.toSet()
