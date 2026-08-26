@@ -19,6 +19,17 @@ class AudioSessionDetector(private val audioManager: AudioManager) {
 
     private val playbackCallback = object : AudioManager.AudioPlaybackCallback() {
         override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>) {
+            Log.d(TAG, "onPlaybackConfigChanged: received ${configs.size} configs")
+            for (config in configs) {
+                val sessionId = getSessionId(config)
+                val contentType = config.audioAttributes.contentType
+                val usage = config.audioAttributes.usage
+                val playerState = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    config.playerState
+                } else "N/A"
+                Log.d(TAG, "  Config: sessionId=$sessionId, contentType=$contentType, usage=$usage, playerState=$playerState, packageName=${config.packageName}")
+            }
+
             val activeSessions = configs
                 .mapNotNull { config ->
                     val sessionId = getSessionId(config)
@@ -49,8 +60,15 @@ class AudioSessionDetector(private val audioManager: AudioManager) {
 
         // Check currently active sessions
         val current = audioManager.activePlaybackConfigurations
+        Log.i(TAG, "Initial scan: found ${current.size} active playback configurations")
         for (config in current) {
             val sessionId = getSessionId(config)
+            val contentType = config.audioAttributes.contentType
+            val usage = config.audioAttributes.usage
+            val playerState = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                config.playerState
+            } else "N/A"
+            Log.d(TAG, "  Initial config: sessionId=$sessionId, contentType=$contentType, usage=$usage, playerState=$playerState, packageName=${config.packageName}")
             if (sessionId > 0 && !trackedSessions.contains(sessionId)) {
                 trackedSessions.add(sessionId)
                 Log.i(TAG, "Existing audio session: $sessionId")
@@ -72,9 +90,20 @@ class AudioSessionDetector(private val audioManager: AudioManager) {
 
     private fun getSessionId(config: AudioPlaybackConfiguration): Int {
         return try {
+            // Try multiple approaches for getting session ID
+            // Approach 1: getAudioSessionId() (Android 12+)
             val method = config.javaClass.getMethod("getAudioSessionId")
-            method.invoke(config) as? Int ?: 0
+            val result = method.invoke(config) as? Int
+            if (result != null && result > 0) return result
+            
+            // Approach 2: getSessionId() (older)
+            val method2 = config.javaClass.getMethod("getSessionId")
+            val result2 = method2.invoke(config) as? Int
+            if (result2 != null && result2 > 0) return result2
+            
+            0
         } catch (e: Exception) {
+            Log.w(TAG, "Failed to get session ID: ${e.message}")
             0
         }
     }

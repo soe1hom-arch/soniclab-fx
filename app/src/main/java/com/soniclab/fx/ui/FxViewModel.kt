@@ -4,6 +4,9 @@ package com.soniclab.fx.ui
 
 import android.app.Application
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -70,9 +73,19 @@ class FxViewModel(application: Application) : AndroidViewModel(application) {
     fun updateSpatialRotation(r: Float) = applySettings(_settings.value.copy(spatialRotation = r.coerceIn(4f, 60f)))
     fun updateSpatialPanDepth(d: Float) = applySettings(_settings.value.copy(spatialPanDepth = d.coerceIn(0.1f, 1f)))
 
-    fun registerEffect() {
+    fun registerEffect(activity: MainActivity) {
         viewModelScope.launch {
-            _status.value = _status.value.copy(message = "Starting...")
+            _status.value = _status.value.copy(message = "Checking permissions...")
+            if (!hasForegroundServicePermission()) {
+                _status.value = _status.value.copy(message = "Requesting permission...")
+                activity.requestForegroundServicePermission()
+                // Wait a bit for permission to be granted
+                kotlinx.coroutines.delay(1000)
+                if (!hasForegroundServicePermission()) {
+                    _status.value = _status.value.copy(active = false, message = "Permission denied")
+                    return@launch
+                }
+            }
             val result = regManager.register()
             _status.value = _status.value.copy(active = result.success, message = result.message)
             if (result.success) startService()
@@ -82,6 +95,13 @@ class FxViewModel(application: Application) : AndroidViewModel(application) {
         regManager.unregister()
         stopService()
         _status.value = Status()
+    }
+
+    private fun hasForegroundServicePermission(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            return ContextCompat.checkSelfPermission(context, android.Manifest.permission.FOREGROUND_SERVICE) == PackageManager.PERMISSION_GRANTED
+        }
+        return true // Not required on older Android
     }
 
     private fun applySettings(s: FxSettings) {

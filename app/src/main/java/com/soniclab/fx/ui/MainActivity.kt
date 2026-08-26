@@ -2,10 +2,14 @@
 
 package com.soniclab.fx.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -16,17 +20,32 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.soniclab.fx.audio.FxSettings
 import com.soniclab.fx.audio.SpatialProcessor
 
 class MainActivity : ComponentActivity() {
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Permission result handled in viewmodel
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                FxScreen(viewModel = viewModel())
+                FxScreen(viewModel = viewModel(), activity = this)
+            }
+        }
+    }
+
+    fun requestForegroundServicePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) { // Android 14+
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.FOREGROUND_SERVICE) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissionLauncher.launch(Manifest.permission.FOREGROUND_SERVICE)
             }
         }
     }
@@ -34,7 +53,7 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FxScreen(viewModel: FxViewModel) {
+fun FxScreen(viewModel: FxViewModel, activity: MainActivity) {
     val settings by viewModel.settings.collectAsState()
     val status by viewModel.status.collectAsState()
 
@@ -54,7 +73,7 @@ fun FxScreen(viewModel: FxViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Status & Toggle
-            StatusCard(status, settings.enabled, viewModel)
+            StatusCard(status, settings.enabled, viewModel, activity)
 
             // === Preamp ===
             SectionTitle("Preamp")
@@ -170,7 +189,7 @@ fun SectionTitle(title: String) {
 }
 
 @Composable
-fun StatusCard(status: FxViewModel.Status, enabled: Boolean, viewModel: FxViewModel) {
+fun StatusCard(status: FxViewModel.Status, enabled: Boolean, viewModel: FxViewModel, activity: MainActivity) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -198,7 +217,7 @@ fun StatusCard(status: FxViewModel.Status, enabled: Boolean, viewModel: FxViewMo
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!status.active) {
-                    Button(onClick = { viewModel.registerEffect() }) { Text("Start", fontSize = 12.sp) }
+                    Button(onClick = { viewModel.registerEffect(activity) }) { Text("Start", fontSize = 12.sp) }
                 } else {
                     OutlinedButton(onClick = { viewModel.unregisterEffect() }) { Text("Stop", fontSize = 12.sp) }
                 }
