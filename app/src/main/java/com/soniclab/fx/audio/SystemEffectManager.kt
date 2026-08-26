@@ -116,7 +116,7 @@ class SystemEffectManager {
         // Equalizer — use setBandLevel via reflection to bypass type issues
         effects.equalizer?.let { eq ->
             try {
-                val bands = eq.numberOfBands
+                val bands = eq.numberOfBands.toInt()
                 for (b in 0 until minOf(settings.eqBandGains.size, bands)) {
                     val levelMb = (settings.eqBandGains[b] * 100).toInt().toShort()
                     val method = eq.javaClass.getMethod(
