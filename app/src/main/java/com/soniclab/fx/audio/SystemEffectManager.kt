@@ -92,14 +92,14 @@ class SystemEffectManager {
                 // Map our ±15dB to system range
                 val level = (settings.eqBandGains[b] / 15f * maxLevel).toInt()
                     .coerceIn(minLevel, maxLevel)
-                eq.setBandLevel(b, level)
+                eq.setBandLevel(b.toShort(), level.toShort())
             }
         }
 
         // BassBoost: map our bass gain (0-12dB mapped to 0-1000)
         effects.bassBoost?.let { bb ->
             val strength = (settings.bassGainDb.coerceIn(0f, 12f) / 12f * 1000f).toInt()
-            bb.setStrength(strength)
+            bb.setStrength(strength.toShort())
             bb.enabled = settings.bassGainDb > 0f
         }
 
@@ -108,7 +108,7 @@ class SystemEffectManager {
             val strength = if (settings.spatial3d || settings.enhanceEnabled) {
                 (settings.spatialWidth * 1000).toInt().coerceIn(0, 1000)
             } else 0
-            vz.setStrength(strength)
+            vz.setStrength(strength.toShort())
             vz.enabled = strength > 0
         }
 
