@@ -85,21 +85,21 @@ class SystemEffectManager {
         // Equalizer: map our 10 bands to system EQ bands
         effects.equalizer?.let { eq ->
             val bands = eq.numberOfBands
-            val minLevel = eq.bandLevelRange[0]
-            val maxLevel = eq.bandLevelRange[1]
+            val minLevel = eq.bandLevelRange[0].toInt()
+            val maxLevel = eq.bandLevelRange[1].toInt()
 
             for (b in 0 until minOf(settings.eqBandGains.size, bands)) {
                 // Map our ±15dB to system range
                 val level = (settings.eqBandGains[b] / 15f * maxLevel).toInt()
                     .coerceIn(minLevel, maxLevel)
-                eq.setBandLevel(b.toShort(), level.toShort())
+                eq.setBandLevel(b, level)
             }
         }
 
         // BassBoost: map our bass gain (0-12dB mapped to 0-1000)
         effects.bassBoost?.let { bb ->
             val strength = (settings.bassGainDb.coerceIn(0f, 12f) / 12f * 1000f).toInt()
-            bb.setStrength(strength.toShort())
+            bb.setStrength(strength)
             bb.enabled = settings.bassGainDb > 0f
         }
 
@@ -108,7 +108,7 @@ class SystemEffectManager {
             val strength = if (settings.spatial3d || settings.enhanceEnabled) {
                 (settings.spatialWidth * 1000).toInt().coerceIn(0, 1000)
             } else 0
-            vz.setStrength(strength.toShort())
+            vz.setStrength(strength)
             vz.enabled = strength > 0
         }
 
