@@ -191,22 +191,17 @@ fun StatusCard(status: FxViewModel.Status, enabled: Boolean, viewModel: FxViewMo
                         color = if (enabled) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text("Method: ${status.method}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (status.message.isNotEmpty()) {
-                        Text(status.message, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                    Text(status.message, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Switch(checked = enabled, onCheckedChange = { viewModel.toggleEnabled() })
             }
             Spacer(modifier = Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!status.registered) {
-                    Button(onClick = { viewModel.registerEffect() }) { Text("Register Effect", fontSize = 12.sp) }
+                if (!status.active) {
+                    Button(onClick = { viewModel.registerEffect() }) { Text("Start", fontSize = 12.sp) }
                 } else {
-                    OutlinedButton(onClick = { viewModel.unregisterEffect() }) { Text("Unregister", fontSize = 12.sp) }
+                    OutlinedButton(onClick = { viewModel.unregisterEffect() }) { Text("Stop", fontSize = 12.sp) }
                 }
-                if (status.shizukuAvailable) AssistChip(onClick = {}, label = { Text("Shizuku", fontSize = 10.sp) })
-                if (status.isRooted) AssistChip(onClick = {}, label = { Text("Root", fontSize = 10.sp) })
             }
         }
     }

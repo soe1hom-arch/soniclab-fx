@@ -9,33 +9,38 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.soniclab.fx.R
-import com.soniclab.fx.audio.DspChain
+import com.soniclab.fx.audio.AudioSessionDetector
 import com.soniclab.fx.audio.FxSettings
 import com.soniclab.fx.audio.SpatialProcessor
+import com.soniclab.fx.audio.SystemEffectManager
 import com.soniclab.fx.ui.MainActivity
 
-class FxOverlayService : Service() {
+class FxOverlayService : Service(), AudioSessionDetector.SessionListener {
 
-    private val dspChain = DspChain()
+    private lateinit var audioManager: AudioManager
+    private lateinit var sessionDetector: AudioSessionDetector
+    private val effectManager = SystemEffectManager()
+    private var currentSettings = FxSettings()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
+        sessionDetector = AudioSessionDetector(audioManager)
         createNotificationChannel()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                NOTIFICATION_ID,
-                buildNotification("SonicLab FX — active"),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification("SonicLab FX — active"))
-        }
+        startForeground(
+            NOTIFICATION_ID,
+            buildNotification("SonicLab FX — active"),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+        )
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -60,10 +65,21 @@ class FxOverlayService : Service() {
                     spatialRotation = intent.getFloatExtra("spatialRotation", 8f),
                     spatialPanDepth = intent.getFloatExtra("spatialPanDepth", 0.6f),
                 )
-                dspChain.updateSettings(s)
-                updateNotification(if (s.enabled) "SonicLab FX — active" else "SonicLab FX — bypassed")
+                currentSettings = s
+                if (s.enabled) {
+                    startDetection()
+                } else {
+                    stopDetection()
+                }
+                effectManager.applySettings(s)
+                updateNotification(
+                    if (s.enabled) "SonicLab FX — active (${effectManager.getAttachedSessions().size} sessions)"
+                    else "SonicLab FX — bypassed"
+                )
             }
             ACTION_STOP -> {
+                stopDetection()
+                effectManager.releaseAll()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
@@ -72,9 +88,42 @@ class FxOverlayService : Service() {
     }
 
     override fun onDestroy() {
-        dspChain.reset()
+        stopDetection()
+        effectManager.releaseAll()
         super.onDestroy()
     }
+
+    private fun startDetection() {
+        sessionDetector.stop()
+        sessionDetector.start(this)
+        Log.i(TAG, "Session detection started")
+    }
+
+    private fun stopDetection() {
+        sessionDetector.stop()
+        // Detach effects from all sessions
+        for (id in sessionDetector.getActiveSessions()) {
+            effectManager.detachFromSession(id)
+        }
+        Log.i(TAG, "Session detection stopped")
+    }
+
+    // --- SessionListener ---
+
+    override fun onSessionStarted(sessionId: Int) {
+        Log.i(TAG, "Session started: $sessionId, attaching effects...")
+        effectManager.attachToSession(sessionId)
+        effectManager.applySettings(currentSettings)
+        updateNotification("SonicLab FX — active (${effectManager.getAttachedSessions().size} sessions)")
+    }
+
+    override fun onSessionEnded(sessionId: Int) {
+        Log.i(TAG, "Session ended: $sessionId, detaching effects...")
+        effectManager.detachFromSession(sessionId)
+        updateNotification("SonicLab FX — active (${effectManager.getAttachedSessions().size} sessions)")
+    }
+
+    // --- Notification ---
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(CHANNEL_ID, "SonicLab FX", NotificationManager.IMPORTANCE_LOW)
@@ -100,6 +149,7 @@ class FxOverlayService : Service() {
     companion object {
         const val ACTION_UPDATE_SETTINGS = "com.soniclab.fx.UPDATE_SETTINGS"
         const val ACTION_STOP = "com.soniclab.fx.STOP"
+        private const val TAG = "FxOverlayService"
         private const val CHANNEL_ID = "soniclab_fx"
         private const val NOTIFICATION_ID = 1001
     }

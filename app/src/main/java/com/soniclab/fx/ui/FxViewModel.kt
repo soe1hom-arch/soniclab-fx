@@ -12,8 +12,6 @@ import com.soniclab.fx.audio.EffectRegistrationManager
 import com.soniclab.fx.audio.FxSettings
 import com.soniclab.fx.audio.SpatialProcessor
 import com.soniclab.fx.service.FxOverlayService
-import com.soniclab.fx.util.RootHelper
-import com.soniclab.fx.util.ShizukuHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,17 +30,12 @@ class FxViewModel(application: Application) : AndroidViewModel(application) {
     val status: StateFlow<Status> = _status.asStateFlow()
 
     data class Status(
-        val registered: Boolean = false,
-        val method: String = "None",
-        val message: String = "Not registered",
-        val isActive: Boolean = false,
-        val shizukuAvailable: Boolean = false,
-        val isRooted: Boolean = false,
+        val active: Boolean = false,
+        val message: String = "Inactive",
     )
 
     init {
         _settings.value = FxSettings.load(context)
-        checkCapabilities()
     }
 
     fun toggleEnabled() {
@@ -79,18 +72,16 @@ class FxViewModel(application: Application) : AndroidViewModel(application) {
 
     fun registerEffect() {
         viewModelScope.launch {
-            _status.value = _status.value.copy(message = "Registering...")
-            val result = regManager.register(dspChain)
-            _status.value = _status.value.copy(
-                registered = result.success, method = result.method.name, message = result.message
-            )
+            _status.value = _status.value.copy(message = "Starting...")
+            val result = regManager.register()
+            _status.value = _status.value.copy(active = result.success, message = result.message)
             if (result.success) startService()
         }
     }
     fun unregisterEffect() {
         regManager.unregister()
         stopService()
-        _status.value = _status.value.copy(registered = false, method = "None", message = "Unregistered")
+        _status.value = Status()
     }
 
     private fun applySettings(s: FxSettings) {
@@ -103,17 +94,16 @@ class FxViewModel(application: Application) : AndroidViewModel(application) {
     private fun startService() {
         val intent = Intent(context, FxOverlayService::class.java)
         ContextCompat.startForegroundService(context, intent)
-        _status.value = _status.value.copy(isActive = true)
+        _status.value = _status.value.copy(active = true)
     }
     private fun stopService() {
         val intent = Intent(context, FxOverlayService::class.java).apply { action = FxOverlayService.ACTION_STOP }
         ContextCompat.startForegroundService(context, intent)
-        _status.value = _status.value.copy(isActive = false)
+        _status.value = _status.value.copy(active = false)
     }
     private fun updateServiceSettings(s: FxSettings) {
         val intent = Intent(context, FxOverlayService::class.java).apply {
             action = FxOverlayService.ACTION_UPDATE_SETTINGS
-            // Pass settings as individual extras since FxSettings isn't Parcelable
             putExtra("enabled", s.enabled)
             putExtra("eqGains", s.eqBandGains)
             putExtra("bass", s.bassGainDb)
@@ -134,14 +124,9 @@ class FxViewModel(application: Application) : AndroidViewModel(application) {
         }
         ContextCompat.startForegroundService(context, intent)
     }
-    private fun checkCapabilities() {
-        viewModelScope.launch {
-            _status.value = _status.value.copy(
-                shizukuAvailable = ShizukuHelper.isAvailable(context),
-                isRooted = RootHelper.isRooted()
-            )
-        }
-    }
 
-    override fun onCleared() { regManager.unregister(); super.onCleared() }
+    override fun onCleared() {
+        regManager.unregister()
+        super.onCleared()
+    }
 }
