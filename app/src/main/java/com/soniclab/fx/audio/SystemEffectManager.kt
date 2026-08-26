@@ -2,24 +2,23 @@
 
 package com.soniclab.fx.audio
 
-import android.media.audiofx.AudioEffect
 import android.media.audiofx.BassBoost
+import android.media.audiofx.Equalizer
 import android.media.audiofx.PresetReverb
 import android.media.audiofx.Virtualizer
 import android.util.Log
 
 /**
  * Manages Android system audio effects on detected audio sessions.
- *
- * Uses AudioEffect.setParameter() directly instead of typed wrappers
- * to avoid compileSdk compatibility issues.
+ * Uses typed audio effect subclasses (Equalizer, BassBoost, etc.)
+ * which have public constructors unlike the base AudioEffect class.
  */
 class SystemEffectManager {
 
     private val sessionEffects = mutableMapOf<Int, SessionEffects>()
 
     data class SessionEffects(
-        val equalizer: AudioEffect?,
+        val equalizer: Equalizer?,
         val bassBoost: BassBoost?,
         val virtualizer: Virtualizer?,
         val reverb: PresetReverb?
@@ -36,10 +35,7 @@ class SystemEffectManager {
         if (sessionEffects.containsKey(sessionId)) return true
 
         return try {
-            // Use AudioEffect with built-in EQUALIZER UUID
-            val eqType = java.UUID.fromString("0bed4300-ddd6-11db-8f34-0002a5d5c51b")
-            val eq = AudioEffect(eqType, java.UUID(0, 0), 0, sessionId)
-
+            val eq = Equalizer(0, sessionId)
             val bb = BassBoost(0, sessionId)
             val vz = Virtualizer(0, sessionId)
             val rv = PresetReverb(0, sessionId)
@@ -53,7 +49,7 @@ class SystemEffectManager {
             Log.i(TAG, "Effects attached to session $sessionId")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to attach effects to session $sessionId: ${e.message}")
+            Log.e(TAG, "Failed to attach to session $sessionId: ${e.message}")
             false
         }
     }
@@ -74,31 +70,31 @@ class SystemEffectManager {
     }
 
     private fun applyToSession(settings: FxSettings, effects: SessionEffects) {
-        // BassBoost: 0-1000 strength
+        // BassBoost
         effects.bassBoost?.let { bb ->
-            val strength = (settings.bassGainDb.coerceIn(0f, 12f) / 12f * 1000f).toInt()
             try {
+                val strength = (settings.bassGainDb.coerceIn(0f, 12f) / 12f * 1000f).toInt()
                 bb.setStrength(strength.toShort())
                 bb.enabled = settings.bassGainDb > 0f
             } catch (e: Exception) {
-                Log.w(TAG, "BassBoost setStrength failed: ${e.message}")
+                Log.w(TAG, "BassBoost error: ${e.message}")
             }
         }
 
-        // Virtualizer: 0-1000 strength
+        // Virtualizer
         effects.virtualizer?.let { vz ->
-            val strength = if (settings.spatial3d || settings.enhanceEnabled) {
-                (settings.spatialWidth * 1000).toInt().coerceIn(0, 1000)
-            } else 0
             try {
+                val strength = if (settings.spatial3d || settings.enhanceEnabled) {
+                    (settings.spatialWidth * 1000).toInt().coerceIn(0, 1000)
+                } else 0
                 vz.setStrength(strength.toShort())
                 vz.enabled = strength > 0
             } catch (e: Exception) {
-                Log.w(TAG, "Virtualizer setStrength failed: ${e.message}")
+                Log.w(TAG, "Virtualizer error: ${e.message}")
             }
         }
 
-        // PresetReverb
+        // Reverb
         effects.reverb?.let { rv ->
             try {
                 if (settings.reverbMix > 0f) {
@@ -113,21 +109,24 @@ class SystemEffectManager {
                     rv.enabled = false
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Reverb failed: ${e.message}")
+                Log.w(TAG, "Reverb error: ${e.message}")
             }
         }
 
-        // Equalizer via parameter IDs (bypass type-specific API)
+        // Equalizer — use setBandLevel via reflection to bypass type issues
         effects.equalizer?.let { eq ->
             try {
-                // PARAM_EQ_BAND_LEVEL = 1, band indices 0-9, level in millibels
-                for (b in 0 until minOf(settings.eqBandGains.size, 10)) {
+                val bands = eq.numberOfBands
+                for (b in 0 until minOf(settings.eqBandGains.size, bands)) {
                     val levelMb = (settings.eqBandGains[b] * 100).toInt().toShort()
-                    eq.setParameter(1, b.toShort(), levelMb)
+                    val setBandLevel = eq.javaClass.getMethod(
+                        "setBandLevel", Short::class.java, Short::class.java
+                    )
+                    setBandLevel.invoke(eq, b.toShort(), levelMb)
                 }
                 eq.enabled = true
             } catch (e: Exception) {
-                Log.w(TAG, "Equalizer setParameter failed: ${e.message}")
+                Log.w(TAG, "Equalizer error: ${e.message}")
             }
         }
     }
