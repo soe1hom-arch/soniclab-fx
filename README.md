@@ -1,71 +1,49 @@
-# SonicLab FX — System-Wide Audio Effects
+# SonicLab FX
 
-[![Android Build](https://img.shields.io/badge/build-passing-brightgreen)]()
+System-wide equalizer and audio effects for Android. Works on top of every app — YouTube, Spotify, games, anything that plays sound.
 
-A system-wide audio equalizer and effects app for Android. Apply EQ, bass/treble, reverb, and limiter to **all audio** on your device — YouTube, Spotify, games, podcasts, everything.
+## What it does
 
-## How It Works
-
-SonicLab FX registers an audio effect on Android's global output mix (session 0). Once active, the Android audio framework routes ALL audio through the DSP chain before it reaches the speaker/headphones.
-
-### Registration Methods
-
-| Method | Android Version | Root Required | Notes |
-|--------|----------------|---------------|-------|
-| **Direct API** | ≤ 9 (Pie) | No | Works on older devices natively |
-| **Shizuku** | 10+ | No | Requires Shizuku app (ADB-privileged shell) |
-| **Root** | Any | Yes | Direct access via `su` shell |
+SonicLab FX hooks into Android's audio output (session 0) and processes all audio before it hits your speakers or headphones. EQ, bass boost, reverb, limiter — applied globally, not just inside one app.
 
 ## Features
 
-- **10-band parametric EQ** (31.25 Hz – 16 kHz, ±15 dB)
-- **Bass/Treble tone control** (±12 dB, RBJ shelf filters)
-- **Preamp gain** (±12 dB)
-- **Reverb** (room simulation, adjustable mix & room size)
-- **Transparent peak limiter** (0.90 threshold, 5ms lookahead)
-- **Fully offline** — no internet permission, no data collection
-- **Material 3 dark UI** with Jetpack Compose
+- 10-band parametric EQ (31 Hz – 16 kHz)
+- Bass and treble tone control
+- Preamp gain
+- 3D / 8D spatial audio
+- Stereo balance
+- Reverb (room simulation)
+- AI-style loudness enhancer
+- Auto-normalization (targets -14 LUFS)
+- Transparent peak limiter with lookahead
+- Fully offline, no internet permission needed
 
 ## Requirements
 
-- Android 8.0+ (API 26)
-- For Android 10+: [Shizuku](https://shizuku.rikka.app/) app installed and running
-- For rooted devices: root access via Magisk/SuperSU
+- Android 8.0+
+- Android 10+: needs [Shizuku](https://shizuku.rikka.app/) installed and running
+- Rooted devices: works directly via `su`
 
-## Build
+## Building
 
-```bash
+```
 ./gradlew :app:assembleDebug
 ```
 
-## Architecture
+Debug APK will be at `app/build/outputs/apk/debug/app-debug.apk`.
 
-```
-app/
-├── audio/
-│   ├── BiquadFilter.kt        — RBJ biquad (peaking/shelf)
-│   ├── DspChain.kt            — Full DSP pipeline
-│   ├── EffectRegistrationManager.kt — Auto-selects registration method
-│   ├── FxSettings.kt          — Persistent settings (SharedPreferences)
-│   └── GlobalAudioEffect.kt   — AudioEffect API wrapper
-├── service/
-│   └── FxOverlayService.kt    — Foreground service
-├── util/
-│   ├── RootHelper.kt          — Root shell execution
-│   └── ShizukuHelper.kt       — Shizuku integration
-└── ui/
-    ├── FxViewModel.kt         — State management
-    └── MainActivity.kt        — Compose UI
-```
+CI also builds automatically on every push to `main` via GitHub Actions.
 
-## DSP Chain
+## How it registers
 
-```
-Input → Preamp → 10-Band EQ → Bass Shelf → Treble Shelf → Reverb → Limiter → Output
-```
+The app tries these methods in order:
 
-All processing runs in 32-bit float. The limiter uses a 220-frame lookahead buffer (~5ms at 44.1kHz) to prevent transient clipping.
+1. **Shizuku** — no root, just Shizuku running (recommended for Android 10+)
+2. **Root** — direct shell access via `su`
+
+On Android 9 and below, the native AudioEffect API works without either.
 
 ## License
 
-Apache License 2.0
+Apache 2.0
